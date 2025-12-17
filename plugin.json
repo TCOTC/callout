@@ -1,0 +1,24 @@
+{
+  "name": "callout",
+  "author": "TCOTC",
+  "url": "https://github.com/TCOTC/callout",
+  "version": "0.4.3",
+  "minAppVersion": "3.4.2",
+  "backends": ["all"],
+  "frontends": ["all"],
+  "disabledInPublish": false,
+  "displayName": {
+    "default": "Custom Callout",
+    "zh_CN": "自定义提示块"
+  },
+  "description": {
+    "default": "Template-based custom callout types, titles, icons, colors, styles...",
+    "zh_CN": "模板化自定义提示块的类型、标题、图标、颜色、样式……"
+  },
+  "readme": {
+    "default": "README.md",
+    "zh_CN": "README_zh_CN.md"
+  },
+  "funding": {"custom": ["https://bento.me/jeffff"]},
+  "keywords": []
+}

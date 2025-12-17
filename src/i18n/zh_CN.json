@@ -1,0 +1,5 @@
+{
+  "pluginOnload": "插件已启用",
+  "pluginOnunload": "插件已禁用",
+  "pluginUninstall": "插件已卸载"
+}
