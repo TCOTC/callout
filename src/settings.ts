@@ -4,7 +4,7 @@
  */
 
 // 设置项类型定义
-export type SettingItemType = "text" | "textarea" | "checkbox" | "select" | "button";
+export type SettingItemType = "text" | "textarea" | "checkbox" | "select" | "button" | "textWithSwitch" | "header";
 
 export interface SettingItem {
     /** 设置项的 key，用于存储和读取配置 */
@@ -126,6 +126,37 @@ function generateSettingItemHTML(item: SettingItem, value: any): string {
                 </div>
             `;
         
+  case "textWithSwitch": {
+    const textKey = `${item.key}_text`;
+    const switchKey = `${item.key}_switch`;
+    // value 可能是对象 { text: string, switch: boolean } 或 undefined
+    const configValue = value && typeof value === "object" ? value : (item.defaultValue || { text: "", switch: false });
+    const textValue = configValue.text !== undefined ? escapeHtml(String(configValue.text)) : "";
+    const switchValue = configValue.switch === true;
+    return `
+                <div class="fn__flex fn__flex-center" style="gap: 8px;">
+                    <input class="b3-text-field fn__flex-1" 
+                           id="setting_${textKey}" 
+                           placeholder="${item.placeholder || ""}" 
+                           value="${textValue}">
+                    <input type="checkbox" class="b3-switch" 
+                           id="setting_${switchKey}" 
+                           ${switchValue ? "checked" : ""}>
+                </div>
+            `;
+  }
+        
+  case "header":
+    return `
+                <div class="b3-label">
+                    <div class="fn__flex b3-label__text">
+                        <div class="fn__flex-1">${escapeHtml(item.title)}</div>
+                    </div>
+                    ${item.description ? `<div class="b3-label__text">${escapeHtml(item.description)}</div>` : ""}
+                    <div class="fn__hr"></div>
+                </div>
+            `;
+        
   default:
     return "";
   }
@@ -137,6 +168,11 @@ function generateSettingItemHTML(item: SettingItem, value: any): string {
 function generateTabHTML(tab: SettingTab, currentTab: string, settingData: Record<string, any>): string {
   const isActive = tab.name === currentTab;
   const itemsHTML = tab.items.map(item => {
+    // header 类型已经在 generateSettingItemHTML 中处理了完整的 HTML
+    if (item.type === "header") {
+      return generateSettingItemHTML(item, null);
+    }
+    
     const value = settingData[item.key] !== undefined ? settingData[item.key] : item.defaultValue;
     // checkbox 类型在控件旁边显示描述，其他类型在顶部显示标题和描述
     const isCheckbox = item.type === "checkbox";
@@ -202,7 +238,7 @@ export function generateSettingHTML(currentTab: string, settingData: Record<stri
     ${tabListHTML}
     
     <!-- 右侧：设置内容区域 -->
-    <div class="config__tab-wrap fn__flex-1">
+    <div class="config__tab-wrap fn__flex-1" style="border-radius:0 0 var(--b3-border-radius-b) 0">
         ${tabsContentHTML}
     </div>
 </div>
@@ -214,28 +250,84 @@ export function generateSettingHTML(currentTab: string, settingData: Record<stri
  * @param dialogElement Dialog 元素
  * @param settingData 设置数据对象（会被修改）
  * @param onButtonClick 按钮点击回调函数映射
+ * @param onChange 设置项改变时的回调函数
  */
 export function bindSettingEvents(
   dialogElement: HTMLElement,
   settingData: Record<string, any>,
-  onButtonClick?: Record<string, () => void>
+  onButtonClick?: Record<string, () => void>,
+  onChange?: () => void
 ): void {
   // 绑定所有设置项的输入事件
   settingTabs.forEach(tab => {
     tab.items.forEach(item => {
+      // header 类型不需要绑定事件
+      if (item.type === "header") {
+        return;
+      }
+      
+      // textWithSwitch 类型需要特殊处理，跳过通用元素查找
+      if (item.type === "textWithSwitch") {
+        // 处理 textWithSwitch 类型
+        const textKey = `${item.key}_text`;
+        const switchKey = `${item.key}_switch`;
+        
+        // 初始化数据结构 - 如果不存在或不是对象，则使用默认值
+        if (!settingData[item.key] || typeof settingData[item.key] !== "object" || !("text" in settingData[item.key]) || !("switch" in settingData[item.key])) {
+          const defaultValue = item.defaultValue || { text: "", switch: false };
+          settingData[item.key] = {
+            text: defaultValue.text || "",
+            switch: defaultValue.switch || false
+          };
+        }
+        
+        // 绑定文本框事件
+        const textElement = dialogElement.querySelector(`#setting_${textKey}`) as HTMLInputElement;
+        if (textElement) {
+          textElement.addEventListener("input", (e) => {
+            const target = e.target as HTMLInputElement;
+            settingData[item.key].text = target.value;
+            if (onChange) {
+              onChange();
+            }
+          });
+        }
+        
+        // 绑定开关事件
+        const switchElement = dialogElement.querySelector(`#setting_${switchKey}`) as HTMLInputElement;
+        if (switchElement) {
+          switchElement.addEventListener("change", (e) => {
+            const target = e.target as HTMLInputElement;
+            settingData[item.key].switch = target.checked;
+            if (onChange) {
+              onChange();
+            }
+          });
+        }
+        return;
+      }
+      
       const element = dialogElement.querySelector(`#setting_${item.key}`) as HTMLElement;
       if (!element) return;
             
       switch (item.type) {
       case "text":
       case "textarea":
-      case "select":
         element.addEventListener("input", (e) => {
-          const target = e.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-          if (target instanceof HTMLSelectElement) {
-            settingData[item.key] = target.value;
-          } else {
-            settingData[item.key] = target.value;
+          const target = e.target as HTMLInputElement | HTMLTextAreaElement;
+          settingData[item.key] = target.value;
+          if (onChange) {
+            onChange();
+          }
+        });
+        break;
+        
+      case "select":
+        element.addEventListener("change", (e) => {
+          const target = e.target as HTMLSelectElement;
+          settingData[item.key] = target.value;
+          if (onChange) {
+            onChange();
           }
         });
         break;
@@ -244,6 +336,9 @@ export function bindSettingEvents(
         element.addEventListener("change", (e) => {
           const target = e.target as HTMLInputElement;
           settingData[item.key] = target.checked;
+          if (onChange) {
+            onChange();
+          }
         });
         break;
                 

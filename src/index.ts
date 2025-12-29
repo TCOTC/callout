@@ -3,7 +3,8 @@ import {
   Dialog,
   getFrontend,
   Setting,
-  fetchPost
+  fetchPost,
+  showMessage
 } from "siyuan";
 import "./index.scss";
 import {
@@ -13,6 +14,12 @@ import {
   bindTabSwitchEvents,
   getSettingTabs
 } from "./settings";
+import {
+  registerDefaultCalloutSettings,
+  applyCalloutTitleStyles,
+  removeCalloutTitleStyles
+} from "./defaultCallout";
+import { registerAboutSettings, deletePluginConfig } from "./about";
 
 const STORAGE_NAME = "callout-config";
 
@@ -46,9 +53,13 @@ export default class PluginCallout extends Plugin {
         // 初始化默认配置
         this.settingData = this.getDefaultSettingData();
       }
+      // 应用 Callout 标题样式
+      this.applyCalloutStyles();
     }).catch((e) => {
       console.log(`[${this.name}] load data [${STORAGE_NAME}] fail: `, e);
       this.settingData = this.getDefaultSettingData();
+      // 应用 Callout 标题样式
+      this.applyCalloutStyles();
     });
 
     // 初始化设置面板
@@ -80,53 +91,11 @@ export default class PluginCallout extends Plugin {
      * 注册设置项
      */
   private registerSettings(): void {
-    // 基础设置 Tab
-    registerSettingTab({
-      name: "基础设置",
-      label: "基础设置",
-      items: [
-        {
-          key: "basicSetting",
-          title: "基础设置项",
-          description: "这是基础设置的描述信息",
-          type: "text",
-          defaultValue: "",
-          placeholder: "请输入基础设置值"
-        }
-      ]
-    });
+    // 优先注册原生 Callout 设置
+    registerDefaultCalloutSettings();
 
-    // 高级设置 Tab
-    registerSettingTab({
-      name: "高级设置",
-      label: "高级设置",
-      items: [
-        {
-          key: "advancedSetting",
-          title: "高级设置项",
-          description: "这是高级设置的描述信息",
-          type: "checkbox",
-          defaultValue: false
-        }
-      ]
-    });
-
-    // 自定义设置 Tab
-    registerSettingTab({
-      name: "自定义设置",
-      label: "自定义设置",
-      items: [
-        {
-          key: "customSetting",
-          title: "自定义设置项",
-          description: "这是自定义设置的描述信息",
-          type: "textarea",
-          defaultValue: "",
-          placeholder: "请输入自定义设置值",
-          rows: 5
-        }
-      ]
-    });
+    // 注册关于页面设置
+    registerAboutSettings();
   }
 
   /**
@@ -173,6 +142,8 @@ export default class PluginCallout extends Plugin {
 
   onunload() {
     console.log(this.displayName, this.i18n.pluginOnunload);
+    // 移除 Callout 标题样式
+    removeCalloutTitleStyles();
   }
 
   uninstall() {
@@ -191,6 +162,8 @@ export default class PluginCallout extends Plugin {
         this.saveData(STORAGE_NAME, this.settingData).catch((e) => {
           console.error(`[${this.name}] save data [${STORAGE_NAME}] fail: `, e);
         });
+        // 应用更新后的 Callout 标题样式
+        this.applyCalloutStyles();
       }
     });
 
@@ -212,7 +185,88 @@ export default class PluginCallout extends Plugin {
     });
 
     // 绑定设置项输入事件
-    bindSettingEvents(dialogElement, this.settingData);
+    bindSettingEvents(
+      dialogElement,
+      this.settingData,
+      {
+        about_delete_config: () => {
+          this.handleDeleteConfig();
+        }
+      },
+      () => {
+        // 配置改变时实时更新样式
+        this.applyCalloutStyles();
+      }
+    );
+  }
+
+  /**
+   * 处理删除配置
+   */
+  private async handleDeleteConfig(): Promise<void> {
+    const confirmDialog = new Dialog({
+      title: "删除配置",
+      content: `<div class="b3-dialog__content">
+        <div class="b3-label">
+          <div class="b3-label__text">确定要删除所有配置数据吗？此操作不可恢复。</div>
+        </div>
+      </div>
+      <div class="b3-dialog__action">
+        <button class="b3-button b3-button--cancel">取消</button>
+        <div class="fn__space"></div>
+        <button class="b3-button b3-button--text">确定</button>
+      </div>`,
+      width: this.isMobile ? "92vw" : "400px"
+    });
+
+    const btnElements = confirmDialog.element.querySelectorAll(".b3-button");
+    btnElements[0].addEventListener("click", () => {
+      confirmDialog.destroy();
+    });
+
+    btnElements[1].addEventListener("click", async () => {
+      confirmDialog.destroy();
+      try {
+        await deletePluginConfig(this, STORAGE_NAME);
+        // 先移除所有样式
+        removeCalloutTitleStyles();
+        // 重置配置数据为默认值（创建新对象，确保完全重置）
+        this.settingData = this.getDefaultSettingData();
+        // 确保所有 textWithSwitch 类型的配置都是关闭状态
+        const tabs = getSettingTabs();
+        tabs.forEach(tab => {
+          tab.items.forEach(item => {
+            if (item.type === "textWithSwitch" && this.settingData[item.key]) {
+              this.settingData[item.key].switch = false;
+            }
+          });
+        });
+        // 重新应用样式（使用默认配置，应该不会生成任何样式）
+        this.applyCalloutStyles();
+        // 刷新设置界面 - 重新生成整个 Dialog 内容
+        if (this.dialog && this.dialog.element) {
+          const dialogBody = this.dialog.element.querySelector(".b3-dialog__body");
+          if (dialogBody) {
+            // 清空并重新生成内容
+            dialogBody.innerHTML = generateSettingHTML(this.currentTab, this.settingData);
+            // 重新绑定事件，确保事件处理函数使用最新的 settingData
+            this.bindSettingEvents();
+          }
+        }
+        // 显示成功消息
+        showMessage("配置已删除");
+      } catch (e) {
+        console.error(`[${this.name}] 删除配置失败: `, e);
+        showMessage("删除配置失败，请查看控制台", 0, "error");
+      }
+    });
+  }
+
+  /**
+   * 应用 Callout 标题样式
+   */
+  private applyCalloutStyles(): void {
+    applyCalloutTitleStyles(this.settingData);
   }
 
   // onDataChanged() {
