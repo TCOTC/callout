@@ -5,6 +5,9 @@
 
 import { registerSettingTab } from "./settings";
 
+// 样式元素 ID 常量
+const STYLE_ID = "snippetCSS-plugin-callout-title-styles";
+
 // Callout 类型定义
 export interface CalloutTypeConfig {
   subtype: string;
@@ -105,8 +108,8 @@ export function generateCalloutTitleCSS(settingData: Record<string, any>): strin
           content: "${escapedTitle}";
           color: ${type.colorVar};
           white-space: nowrap;
-        }
-      `);
+        }`
+      );
       
       // 覆盖斜杠菜单中的标题
       cssRules.push(`
@@ -116,12 +119,28 @@ export function generateCalloutTitleCSS(settingData: Record<string, any>): strin
         .hint--menu button[data-id="${type.slashMenuId}"] .b3-list-item__text span::before {
           content: "${escapedTitle}";
           color: ${type.colorVar};
+        }`
+      );
+      
+      // 覆盖提示选择菜单中的标题
+      // 菜单项顺序：Note(1), Tip(2), Important(3), Warning(4), Caution(5)
+      const menuItemIndex = CALLOUT_TYPES.findIndex(t => t.subtype === type.subtype) + 1;
+      // TODO 改为 Constants.MENU_CALLOUT_SELECT
+      cssRules.push(`
+        [data-name="callout-select"] .b3-menu__items > .b3-menu__item:nth-of-type(${menuItemIndex}) .b3-menu__label > span {
+          color: transparent !important;
         }
-      `);
+        [data-name="callout-select"] .b3-menu__items > .b3-menu__item:nth-of-type(${menuItemIndex}) .b3-menu__label > span::before {
+          content: "${escapedTitle}";
+          color: ${type.colorVar};
+        }`
+      );
     }
   });
   
-  return cssRules.join("\n");
+  const css = cssRules.join("\n") + "\n";
+  // 去掉每行开头的 8 个空格（由代码缩进导致）
+  return css.replaceAll(/^ {8}/gm, "");
 }
 
 /**
@@ -130,27 +149,25 @@ export function generateCalloutTitleCSS(settingData: Record<string, any>): strin
  * @returns 样式元素 ID
  */
 export function applyCalloutTitleStyles(settingData: Record<string, any>): string {
-  const styleId = "snippetCSS-callout-title-styles";
-  let styleElement = document.getElementById(styleId) as HTMLStyleElement;
+  let styleElement = document.getElementById(STYLE_ID) as HTMLStyleElement;
   
   if (!styleElement) {
     styleElement = document.createElement("style");
-    styleElement.id = styleId;
+    styleElement.id = STYLE_ID;
     document.head.appendChild(styleElement);
   }
   
   const css = generateCalloutTitleCSS(settingData);
   styleElement.textContent = css;
   
-  return styleId;
+  return STYLE_ID;
 }
 
 /**
  * 移除 Callout 标题样式
  */
 export function removeCalloutTitleStyles(): void {
-  const styleId = "snippetCSS-callout-title-styles";
-  const styleElement = document.getElementById(styleId);
+  const styleElement = document.getElementById(STYLE_ID);
   if (styleElement) {
     styleElement.remove();
   }
