@@ -17,9 +17,15 @@ import {
 import {
   registerDefaultCalloutSettings,
   applyCalloutTitleStyles,
-  removeCalloutTitleStyles
+  removeCalloutTitleStyles,
+  replaceCalloutTitleInPreview
 } from "./defaultCallout";
 import { registerAboutSettings, deletePluginConfig } from "./about";
+import {
+  setPreviewRenderedCallback,
+  removePreviewRenderedCallback,
+  interceptElementInnerHTML
+} from "./previewEvent";
 
 const STORAGE_NAME = "callout-config";
 
@@ -55,11 +61,15 @@ export default class PluginCallout extends Plugin {
       }
       // 应用 Callout 标题样式
       this.applyCalloutStyles();
+      // 设置预览模式事件监听
+      this.setupPreviewEventListener();
     }).catch((e) => {
       console.log(`[${this.name}] load data [${STORAGE_NAME}] fail: `, e);
       this.settingData = this.getDefaultSettingData();
       // 应用 Callout 标题样式
       this.applyCalloutStyles();
+      // 设置预览模式事件监听
+      this.setupPreviewEventListener();
     });
 
     // 初始化设置面板
@@ -144,6 +154,8 @@ export default class PluginCallout extends Plugin {
     console.log(this.displayName, this.i18n.pluginOnunload);
     // 移除 Callout 标题样式
     removeCalloutTitleStyles();
+    // 移除预览模式事件监听
+    this.removePreviewEventListener();
   }
 
   uninstall() {
@@ -164,6 +176,8 @@ export default class PluginCallout extends Plugin {
         });
         // 应用更新后的 Callout 标题样式
         this.applyCalloutStyles();
+        // 更新预览模式中的标题（如果预览窗口已打开）
+        this.updatePreviewTitles();
       }
     });
 
@@ -196,6 +210,8 @@ export default class PluginCallout extends Plugin {
       () => {
         // 配置改变时实时更新样式
         this.applyCalloutStyles();
+        // 更新预览模式中的标题（如果预览窗口已打开）
+        this.updatePreviewTitles();
       }
     );
   }
@@ -267,6 +283,86 @@ export default class PluginCallout extends Plugin {
    */
   private applyCalloutStyles(): void {
     applyCalloutTitleStyles(this.settingData);
+  }
+
+  /**
+   * 设置预览模式事件监听
+   */
+  private setupPreviewEventListener(): void {
+    // 设置预览内容渲染完成的回调
+    const handlePreviewRendered = (previewElement: Element) => {
+      console.log("[Callout Plugin] Preview content rendered:", previewElement);
+      // 替换预览模式下的 Callout 标题
+      replaceCalloutTitleInPreview(previewElement, this.settingData);
+    };
+
+    setPreviewRenderedCallback(handlePreviewRendered);
+
+    // 保存回调函数引用
+    (this as any).__previewRenderedHandler = handlePreviewRendered;
+
+    // 监听思源笔记的 switch-protyle-mode 事件（切换到预览模式时触发）
+    const handleSwitchMode = (event: CustomEvent<{ protyle: any }>) => {
+      console.log("[Callout Plugin] switch-protyle-mode:", event);
+      const protyle = event.detail?.protyle;
+      if (!protyle) {
+        return;
+      }
+
+      // 检查是否切换到预览模式
+      const isPreviewMode = !protyle.preview.element.classList.contains("fn__none");
+      
+      if (isPreviewMode) {
+        console.log("[Callout Plugin] Switched to preview mode:", protyle);
+        
+        // 立即拦截预览元素的 innerHTML（如果元素已存在）
+        const previewElement = protyle.preview.previewElement;
+        if (previewElement && previewElement.classList.contains("b3-typography")) {
+          interceptElementInnerHTML(previewElement);
+        }
+        
+        // 预览内容渲染是异步的，会在 protyle.options.preview.delay 后开始
+        // 等待内容渲染完成后，innerHTML 拦截器会自动触发回调
+      }
+    };
+
+    this.eventBus.on("switch-protyle-mode", handleSwitchMode);
+
+    // 保存事件处理函数引用，以便后续移除
+    (this as any).__switchModeHandler = handleSwitchMode;
+
+    // 处理已存在的预览内容（如果预览窗口已经打开）
+    // 设置拦截器并立即处理已存在的内容
+    document.querySelectorAll(".b3-typography").forEach((previewElement) => {
+      console.log("[Callout Plugin] Processing existing preview element:", previewElement);
+      interceptElementInnerHTML(previewElement);
+      replaceCalloutTitleInPreview(previewElement, this.settingData);
+    });
+  }
+
+  /**
+   * 移除预览模式事件监听
+   */
+  private removePreviewEventListener(): void {
+    // 移除 switch-protyle-mode 事件监听器
+    const switchModeHandler = (this as any).__switchModeHandler;
+    if (switchModeHandler && this.eventBus) {
+      this.eventBus.off("switch-protyle-mode", switchModeHandler);
+      delete (this as any).__switchModeHandler;
+    }
+
+    // 移除回调
+    removePreviewRenderedCallback();
+  }
+
+  /**
+   * 更新预览模式中的标题
+   */
+  private updatePreviewTitles(): void {
+    // 查找所有预览元素并更新标题
+    document.querySelectorAll(".b3-typography").forEach((previewElement) => {
+      replaceCalloutTitleInPreview(previewElement, this.settingData);
+    });
   }
 
   // onDataChanged() {
